@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- メタ情報 -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Todo管理アプリ - カレンダー表示。月ごとにタスクを確認できます。">
+  <meta name="theme-color" content="#6c5ce7">
+  
+  <title>カレンダー - Todo管理アプリ</title>
+  
+  <!-- PWAマニフェスト -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- スタイルシート -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="calendar">
+
+  <!-- ========== ヘッダー ========== -->
+  <header class="app-header">
+    <h1>📋 Todo管理</h1>
+    <nav class="nav-links">
+      <a href="index.html" id="nav-index">一覧</a>
+      <a href="calendar.html" class="active" id="nav-calendar">カレンダー</a>
+    </nav>
+  </header>
+
+  <!-- ========== メインコンテンツ ========== -->
+  <main class="main-container">
+
+    <!-- カレンダーヘッダー（月切替） -->
+    <div class="calendar-header">
+      <button class="calendar-nav-btn" onclick="changeMonth(-1)" aria-label="前月">◀</button>
+      <h2 id="calendar-month"><!-- JSで描画 --></h2>
+      <button class="calendar-nav-btn" onclick="changeMonth(1)" aria-label="次月">▶</button>
+    </div>
+
+    <!-- カレンダーグリッド -->
+    <div class="calendar-grid" id="calendar-grid">
+      <!-- JSで描画 -->
+    </div>
+
+  </main>
+
+  <!-- ========== 日付別Todo一覧モーダル ========== -->
+  <div class="modal-overlay" id="day-detail-modal" onclick="if(event.target===this)closeModal('day-detail-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="day-detail-title"><!-- JSで描画 --></h2>
+        <button class="modal-close" onclick="closeModal('day-detail-modal')" aria-label="閉じる">×</button>
+      </div>
+      <div id="day-detail-content" class="todo-list">
+        <!-- JSで描画 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Todo詳細モーダル ========== -->
+  <div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeModal('detail-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>📄 Todo詳細</h2>
+        <button class="modal-close" onclick="closeModal('detail-modal')" aria-label="閉じる">×</button>
+      </div>
+      <div id="detail-content">
+        <!-- JSで描画 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- スクリプト -->
+  <script src="script.js"></script>
+</body>
+</html>

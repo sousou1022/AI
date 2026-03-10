@@ -1,0 +1,837 @@
+// ==========================================================
+// Todo管理アプリ - メインスクリプト
+// CRUD操作・通知・カレンダー・Service Worker管理
+// ==========================================================
+
+// ---------- 定数 ----------
+const STORAGE_KEY = 'todo-app-data';          // localStorageのキー
+const NOTIFIED_KEY = 'todo-app-notified';     // 通知済みIDのキー
+const CHECK_INTERVAL = 60000;                  // 通知チェック間隔（1分）
+
+// ---------- 状態管理 ----------
+let todos = [];           // Todoリスト
+let editingId = null;     // 現在編集中のTodo ID
+let currentFilter = 'all'; // 現在のフィルター
+
+// ==========================================================
+// データ操作（localStorage）
+// ==========================================================
+
+/**
+ * localStorageからTodoデータを読み込む
+ * @returns {Array} Todoの配列
+ */
+function loadTodos() {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch (e) {
+    console.error('データの読み込みに失敗:', e);
+    return [];
+  }
+}
+
+/**
+ * localStorageにTodoデータを保存する
+ */
+function saveTodos() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  } catch (e) {
+    console.error('データの保存に失敗:', e);
+  }
+}
+
+/**
+ * 新しいTodoを追加する
+ * @param {Object} todoData - Todoの入力データ
+ */
+function addTodo(todoData) {
+  const todo = {
+    id: Date.now(),                              // ユニークID（タイムスタンプ）
+    title: todoData.title,                       // タイトル（必須）
+    memo: todoData.memo || '',                   // メモ（任意）
+    dueDate: todoData.dueDate || '',             // 期限日
+    notifyTime: todoData.notifyTime || '',       // 通知時間
+    priority: todoData.priority || '中',          // 優先度（低/中/高）
+    completed: false,                            // 完了状態
+    createdAt: new Date().toISOString()          // 作成日時
+  };
+  todos.push(todo);
+  saveTodos();
+  return todo;
+}
+
+/**
+ * Todoを更新する
+ * @param {number} id - 更新対象のID
+ * @param {Object} updateData - 更新データ
+ */
+function updateTodo(id, updateData) {
+  const index = todos.findIndex(t => t.id === id);
+  if (index !== -1) {
+    todos[index] = { ...todos[index], ...updateData };
+    saveTodos();
+  }
+}
+
+/**
+ * Todoを削除する
+ * @param {number} id - 削除対象のID
+ */
+function deleteTodo(id) {
+  todos = todos.filter(t => t.id !== id);
+  saveTodos();
+}
+
+/**
+ * Todoの完了状態を切り替える
+ * @param {number} id - 対象のID
+ */
+function toggleComplete(id) {
+  const todo = todos.find(t => t.id === id);
+  if (todo) {
+    todo.completed = !todo.completed;
+    saveTodos();
+  }
+}
+
+// ==========================================================
+// 日付ユーティリティ
+// ==========================================================
+
+/**
+ * 今日の日付文字列を取得（YYYY-MM-DD形式）
+ * @returns {string}
+ */
+function getTodayString() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * 日付を表示用にフォーマット（M/D形式）
+ * @param {string} dateStr - YYYY-MM-DD形式の日付
+ * @returns {string}
+ */
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/**
+ * 日付を詳細表示用にフォーマット（YYYY年M月D日形式）
+ * @param {string} dateStr - YYYY-MM-DD形式の日付
+ * @returns {string}
+ */
+function formatDateFull(dateStr) {
+  if (!dateStr) return '未設定';
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+/**
+ * 通知時間を表示用にフォーマット
+ * @param {string} notifyTime - datetime-local形式
+ * @returns {string}
+ */
+function formatNotifyTime(notifyTime) {
+  if (!notifyTime) return '未設定';
+  const d = new Date(notifyTime);
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * 期限切れかどうかを判定
+ * @param {string} dueDate - 期限日
+ * @returns {boolean}
+ */
+function isOverdue(dueDate) {
+  if (!dueDate) return false;
+  const today = new Date(getTodayString());
+  const due = new Date(dueDate);
+  return due < today;
+}
+
+/**
+ * 今日が期限かどうかを判定
+ * @param {string} dueDate - 期限日
+ * @returns {boolean}
+ */
+function isDueToday(dueDate) {
+  return dueDate === getTodayString();
+}
+
+// ==========================================================
+// ソート・フィルター
+// ==========================================================
+
+/**
+ * Todoリストをソートする（期限の近い順、未完了優先）
+ * @param {Array} list - Todoの配列
+ * @returns {Array}
+ */
+function sortTodos(list) {
+  return [...list].sort((a, b) => {
+    // 未完了を先に表示
+    if (a.completed !== b.completed) return a.completed ? 1 : -1;
+    
+    // 期限なしは後ろに
+    if (!a.dueDate && b.dueDate) return 1;
+    if (a.dueDate && !b.dueDate) return -1;
+    
+    // 期限の近い順
+    if (a.dueDate && b.dueDate) {
+      return new Date(a.dueDate) - new Date(b.dueDate);
+    }
+    
+    // 優先度順（高 > 中 > 低）
+    const order = { '高': 0, '中': 1, '低': 2 };
+    return (order[a.priority] || 1) - (order[b.priority] || 1);
+  });
+}
+
+/**
+ * フィルターに基づいてTodoを絞り込む
+ * @param {string} filter - フィルター種別
+ * @returns {Array}
+ */
+function filterTodos(filter) {
+  switch (filter) {
+    case 'active':
+      return todos.filter(t => !t.completed);
+    case 'completed':
+      return todos.filter(t => t.completed);
+    case 'today':
+      return todos.filter(t => isDueToday(t.dueDate));
+    case 'overdue':
+      return todos.filter(t => isOverdue(t.dueDate) && !t.completed);
+    default:
+      return [...todos];
+  }
+}
+
+// ==========================================================
+// UI描画（index.html用）
+// ==========================================================
+
+/**
+ * 今日のTodoセクションを描画する
+ */
+function renderTodayTodos() {
+  const container = document.getElementById('today-todos');
+  if (!container) return;
+
+  const todayTodos = todos.filter(t => isDueToday(t.dueDate) && !t.completed);
+  
+  if (todayTodos.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">✨</div>
+        <p>今日のタスクはありません</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = todayTodos.map(todo => createTodoCardHTML(todo)).join('');
+}
+
+/**
+ * Todo一覧を描画する
+ */
+function renderTodoList() {
+  const container = document.getElementById('todo-list');
+  if (!container) return;
+
+  const filtered = filterTodos(currentFilter);
+  const sorted = sortTodos(filtered);
+
+  if (sorted.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <p>タスクがありません</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sorted.map(todo => createTodoCardHTML(todo)).join('');
+}
+
+/**
+ * TodoカードのHTMLを生成する
+ * @param {Object} todo - Todoオブジェクト
+ * @returns {string}
+ */
+function createTodoCardHTML(todo) {
+  const overdueClass = isOverdue(todo.dueDate) && !todo.completed ? 'overdue' : '';
+  const completedClass = todo.completed ? 'completed' : '';
+  const priorityClass = todo.priority === '高' ? 'high' : todo.priority === '中' ? 'medium' : 'low';
+  const priorityLabel = todo.priority;
+
+  return `
+    <div class="todo-card ${completedClass} ${overdueClass}" data-id="${todo.id}">
+      <input 
+        type="checkbox" 
+        class="todo-checkbox" 
+        ${todo.completed ? 'checked' : ''}
+        onclick="event.stopPropagation(); handleToggle(${todo.id})"
+        id="checkbox-${todo.id}"
+      >
+      <div class="todo-content" onclick="showDetail(${todo.id})">
+        <div class="todo-title">${escapeHTML(todo.title)}</div>
+        <div class="todo-meta">
+          ${todo.dueDate ? `<span class="todo-due">📅 ${formatDate(todo.dueDate)}</span>` : ''}
+          <span class="priority-badge ${priorityClass}">${priorityLabel}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * HTMLエスケープ処理
+ * @param {string} str - エスケープする文字列
+ * @returns {string}
+ */
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+/**
+ * メイン画面全体を再描画する
+ */
+function renderAll() {
+  renderTodayTodos();
+  renderTodoList();
+}
+
+// ==========================================================
+// イベントハンドラー
+// ==========================================================
+
+/**
+ * 完了チェック切り替え
+ * @param {number} id - TodoのID
+ */
+function handleToggle(id) {
+  toggleComplete(id);
+  renderAll();
+}
+
+/**
+ * フィルタータブ切り替え
+ * @param {string} filter - フィルター名
+ */
+function setFilter(filter) {
+  currentFilter = filter;
+  
+  // タブのアクティブ状態を更新
+  document.querySelectorAll('.filter-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.filter === filter);
+  });
+  
+  renderTodoList();
+}
+
+// ==========================================================
+// モーダル管理
+// ==========================================================
+
+/**
+ * モーダルを開く
+ * @param {string} modalId - モーダルのID
+ */
+function openModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.add('active');
+    // bodyのスクロールを停止
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+/**
+ * モーダルを閉じる
+ * @param {string} modalId - モーダルのID
+ */
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+}
+
+/**
+ * Todo追加モーダルを開く
+ */
+function openAddModal() {
+  // フォームをリセット
+  const form = document.getElementById('add-form');
+  if (form) form.reset();
+  openModal('add-modal');
+}
+
+/**
+ * Todo追加フォームの送信処理
+ * @param {Event} event - フォームイベント
+ */
+function handleAddSubmit(event) {
+  event.preventDefault();
+  
+  const title = document.getElementById('add-title').value.trim();
+  if (!title) return;
+
+  addTodo({
+    title: title,
+    memo: document.getElementById('add-memo').value.trim(),
+    dueDate: document.getElementById('add-dueDate').value,
+    notifyTime: document.getElementById('add-notifyTime').value,
+    priority: document.getElementById('add-priority').value
+  });
+
+  closeModal('add-modal');
+  renderAll();
+}
+
+/**
+ * Todo詳細モーダルを表示する
+ * @param {number} id - TodoのID
+ */
+function showDetail(id) {
+  const todo = todos.find(t => t.id === id);
+  if (!todo) return;
+
+  const priorityClass = todo.priority === '高' ? 'high' : todo.priority === '中' ? 'medium' : 'low';
+  
+  const content = document.getElementById('detail-content');
+  if (content) {
+    content.innerHTML = `
+      <div class="detail-item">
+        <div class="detail-label">タイトル</div>
+        <div class="detail-value">${escapeHTML(todo.title)}</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">メモ</div>
+        <div class="detail-value">${todo.memo ? escapeHTML(todo.memo) : '未設定'}</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">期限</div>
+        <div class="detail-value">${formatDateFull(todo.dueDate)}</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">通知時間</div>
+        <div class="detail-value">${formatNotifyTime(todo.notifyTime)}</div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">優先度</div>
+        <div class="detail-value"><span class="priority-badge ${priorityClass}">${todo.priority}</span></div>
+      </div>
+      <div class="detail-item">
+        <div class="detail-label">状態</div>
+        <div class="detail-value">${todo.completed ? '✅ 完了' : '⬜ 未完了'}</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" onclick="openEditModal(${todo.id})">✏️ 編集</button>
+        <button class="btn btn-primary" onclick="handleToggle(${todo.id}); closeModal('detail-modal'); renderAll();">
+          ${todo.completed ? '⬜ 未完了に戻す' : '✅ 完了にする'}
+        </button>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-danger" onclick="handleDelete(${todo.id})">🗑️ 削除</button>
+      </div>
+    `;
+  }
+
+  openModal('detail-modal');
+}
+
+/**
+ * Todo削除処理
+ * @param {number} id - TodoのID
+ */
+function handleDelete(id) {
+  if (confirm('このTodoを削除しますか？')) {
+    deleteTodo(id);
+    closeModal('detail-modal');
+    renderAll();
+  }
+}
+
+/**
+ * 編集モーダルを開く
+ * @param {number} id - TodoのID
+ */
+function openEditModal(id) {
+  const todo = todos.find(t => t.id === id);
+  if (!todo) return;
+
+  editingId = id;
+
+  // フォームに現在の値をセット
+  document.getElementById('edit-title').value = todo.title;
+  document.getElementById('edit-memo').value = todo.memo || '';
+  document.getElementById('edit-dueDate').value = todo.dueDate || '';
+  document.getElementById('edit-notifyTime').value = todo.notifyTime || '';
+  document.getElementById('edit-priority').value = todo.priority;
+
+  closeModal('detail-modal');
+  openModal('edit-modal');
+}
+
+/**
+ * Todo編集フォームの送信処理
+ * @param {Event} event - フォームイベント
+ */
+function handleEditSubmit(event) {
+  event.preventDefault();
+
+  const title = document.getElementById('edit-title').value.trim();
+  if (!title || !editingId) return;
+
+  updateTodo(editingId, {
+    title: title,
+    memo: document.getElementById('edit-memo').value.trim(),
+    dueDate: document.getElementById('edit-dueDate').value,
+    notifyTime: document.getElementById('edit-notifyTime').value,
+    priority: document.getElementById('edit-priority').value
+  });
+
+  editingId = null;
+  closeModal('edit-modal');
+  renderAll();
+}
+
+// ==========================================================
+// 通知機能
+// ==========================================================
+
+/**
+ * ブラウザ通知の許可をリクエストする
+ */
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+/**
+ * ブラウザ通知を送信する
+ * @param {string} title - 通知タイトル
+ * @param {string} body - 通知本文
+ */
+function sendNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {
+      body: body,
+      icon: 'icons/icon-192.png',
+      badge: 'icons/icon-192.png'
+    });
+  }
+}
+
+/**
+ * 通知済みIDセットを取得する
+ * @returns {Set}
+ */
+function getNotifiedIds() {
+  try {
+    const data = localStorage.getItem(NOTIFIED_KEY);
+    return data ? new Set(JSON.parse(data)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * 通知済みIDを保存する
+ * @param {Set} ids - 通知済みIDのセット
+ */
+function saveNotifiedIds(ids) {
+  localStorage.setItem(NOTIFIED_KEY, JSON.stringify([...ids]));
+}
+
+/**
+ * Todoの通知時間をチェックし、一致したら通知を送信する
+ * 1分ごとに呼び出される
+ */
+function checkNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const now = new Date();
+  // 現在時刻を分単位で取得（秒は無視）
+  const currentMinute = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const notifiedIds = getNotifiedIds();
+
+  todos.forEach(todo => {
+    // 完了済み・通知時間未設定・通知済みはスキップ
+    if (todo.completed || !todo.notifyTime || notifiedIds.has(`notify-${todo.id}`)) return;
+
+    // notifyTimeをdatetime-local形式と比較
+    if (todo.notifyTime === currentMinute) {
+      sendNotification('🔔 Todo通知', `「${todo.title}」のタスクの時間です`);
+      notifiedIds.add(`notify-${todo.id}`);
+    }
+  });
+
+  saveNotifiedIds(notifiedIds);
+}
+
+/**
+ * 毎日朝9時の今日のTodo通知をチェック
+ */
+function checkMorningNotification() {
+  const now = new Date();
+  
+  // 9:00かどうかを確認
+  if (now.getHours() !== 9 || now.getMinutes() !== 0) return;
+
+  // 今日すでに朝通知済みかチェック
+  const notifiedIds = getNotifiedIds();
+  const todayKey = `morning-${getTodayString()}`;
+  if (notifiedIds.has(todayKey)) return;
+
+  // 今日が期限のTodoを取得
+  const todayTodos = todos.filter(t => isDueToday(t.dueDate) && !t.completed);
+  
+  // todoが無い場合は通知しない
+  if (todayTodos.length === 0) return;
+
+  // 通知本文を構築
+  const todoList = todayTodos.map(t => `・${t.title}`).join('\n');
+  sendNotification('🔔 今日のTodo', todoList);
+
+  // 通知済みとして記録
+  notifiedIds.add(todayKey);
+  saveNotifiedIds(notifiedIds);
+}
+
+/**
+ * 定期的な通知チェックを開始する
+ */
+function startNotificationCheck() {
+  // 初回チェック
+  checkNotifications();
+  checkMorningNotification();
+
+  // 1分ごとにチェック
+  setInterval(() => {
+    checkNotifications();
+    checkMorningNotification();
+  }, CHECK_INTERVAL);
+}
+
+// ==========================================================
+// カレンダー機能
+// ==========================================================
+
+// カレンダーの現在表示月
+let calendarYear = new Date().getFullYear();
+let calendarMonth = new Date().getMonth(); // 0-indexed
+
+/**
+ * カレンダーを描画する
+ */
+function renderCalendar() {
+  const grid = document.getElementById('calendar-grid');
+  const monthLabel = document.getElementById('calendar-month');
+  if (!grid || !monthLabel) return;
+
+  // 月ラベルの更新
+  monthLabel.textContent = `${calendarYear}年${calendarMonth + 1}月`;
+
+  // 曜日ヘッダー
+  const dayHeaders = ['日', '月', '火', '水', '木', '金', '土'];
+  let html = dayHeaders.map(d => `<div class="calendar-day-header">${d}</div>`).join('');
+
+  // 月の初日と最終日を取得
+  const firstDay = new Date(calendarYear, calendarMonth, 1);
+  const lastDay = new Date(calendarYear, calendarMonth + 1, 0);
+  const startDayOfWeek = firstDay.getDay();
+
+  // 前月の日を埋める
+  const prevLastDay = new Date(calendarYear, calendarMonth, 0);
+  for (let i = startDayOfWeek - 1; i >= 0; i--) {
+    const day = prevLastDay.getDate() - i;
+    const dateStr = formatDateStr(calendarYear, calendarMonth - 1, day);
+    html += createCalendarDayHTML(day, dateStr, true);
+  }
+
+  // 当月の日
+  const today = getTodayString();
+  for (let day = 1; day <= lastDay.getDate(); day++) {
+    const dateStr = formatDateStr(calendarYear, calendarMonth, day);
+    const isToday = dateStr === today;
+    html += createCalendarDayHTML(day, dateStr, false, isToday);
+  }
+
+  // 次月の日を埋める（6行分に調整）
+  const totalCells = startDayOfWeek + lastDay.getDate();
+  const remainingCells = Math.ceil(totalCells / 7) * 7 - totalCells;
+  for (let day = 1; day <= remainingCells; day++) {
+    const dateStr = formatDateStr(calendarYear, calendarMonth + 1, day);
+    html += createCalendarDayHTML(day, dateStr, true);
+  }
+
+  grid.innerHTML = html;
+}
+
+/**
+ * 日付文字列をYYYY-MM-DD形式で生成
+ * @param {number} year - 年
+ * @param {number} month - 月（0-indexed）
+ * @param {number} day - 日
+ * @returns {string}
+ */
+function formatDateStr(year, month, day) {
+  const d = new Date(year, month, day);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * カレンダーの1日分のHTMLを生成
+ * @param {number} day - 日
+ * @param {string} dateStr - 日付文字列
+ * @param {boolean} isOtherMonth - 他の月かどうか
+ * @param {boolean} isToday - 今日かどうか
+ * @returns {string}
+ */
+function createCalendarDayHTML(day, dateStr, isOtherMonth, isToday = false) {
+  const dayTodos = todos.filter(t => t.dueDate === dateStr);
+  const todayClass = isToday ? 'today' : '';
+  const otherClass = isOtherMonth ? 'other-month' : '';
+
+  const todosHTML = dayTodos.slice(0, 3).map(t => {
+    const pClass = t.priority === '高' ? 'high' : t.priority === '中' ? 'medium' : 'low';
+    return `<div class="day-todo-item ${pClass}">${escapeHTML(t.title)}</div>`;
+  }).join('');
+
+  // 3件以上ある場合は「+N件」と表示
+  const moreHTML = dayTodos.length > 3 
+    ? `<div class="day-todo-item" style="background:rgba(255,255,255,0.1)">+${dayTodos.length - 3}件</div>` 
+    : '';
+
+  return `
+    <div class="calendar-day ${todayClass} ${otherClass}" onclick="showDayDetail('${dateStr}')">
+      <div class="day-number">${day}</div>
+      <div class="day-todos">${todosHTML}${moreHTML}</div>
+    </div>
+  `;
+}
+
+/**
+ * カレンダーの月を変更する
+ * @param {number} delta - +1 で次月、-1 で前月
+ */
+function changeMonth(delta) {
+  calendarMonth += delta;
+  if (calendarMonth > 11) {
+    calendarMonth = 0;
+    calendarYear++;
+  } else if (calendarMonth < 0) {
+    calendarMonth = 11;
+    calendarYear--;
+  }
+  renderCalendar();
+}
+
+/**
+ * 特定の日付のTodo一覧を表示する
+ * @param {string} dateStr - YYYY-MM-DD形式の日付
+ */
+function showDayDetail(dateStr) {
+  const dayTodos = todos.filter(t => t.dueDate === dateStr);
+  const panel = document.getElementById('day-detail-content');
+  const title = document.getElementById('day-detail-title');
+  
+  if (!panel || !title) return;
+
+  title.textContent = formatDateFull(dateStr) + ' のTodo';
+
+  if (dayTodos.length === 0) {
+    panel.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📅</div>
+        <p>この日のタスクはありません</p>
+      </div>
+    `;
+  } else {
+    panel.innerHTML = dayTodos.map(todo => createTodoCardHTML(todo)).join('');
+  }
+
+  openModal('day-detail-modal');
+}
+
+// ==========================================================
+// Service Worker登録
+// ==========================================================
+
+/**
+ * Service Workerを登録する
+ */
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./service-worker.js')
+      .then((registration) => {
+        console.log('[App] Service Worker登録成功:', registration.scope);
+      })
+      .catch((error) => {
+        console.error('[App] Service Worker登録失敗:', error);
+      });
+  }
+}
+
+// ==========================================================
+// 初期化
+// ==========================================================
+
+/**
+ * アプリの初期化処理
+ */
+function initApp() {
+  // localStorageからTodoを読み込み
+  todos = loadTodos();
+
+  // 通知許可のリクエスト
+  requestNotificationPermission();
+
+  // Service Worker登録
+  registerServiceWorker();
+
+  // ページ固有の初期化
+  const page = document.body.dataset.page;
+  
+  if (page === 'index') {
+    // フィルタータブのイベント設定
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      tab.addEventListener('click', () => setFilter(tab.dataset.filter));
+    });
+
+    // 追加フォームのイベント設定
+    const addForm = document.getElementById('add-form');
+    if (addForm) addForm.addEventListener('submit', handleAddSubmit);
+
+    // 編集フォームのイベント設定
+    const editForm = document.getElementById('edit-form');
+    if (editForm) editForm.addEventListener('submit', handleEditSubmit);
+
+    // メイン画面を描画
+    renderAll();
+  } else if (page === 'calendar') {
+    // カレンダーを描画
+    renderCalendar();
+  }
+
+  // 通知チェック開始
+  startNotificationCheck();
+}
+
+// DOMが読み込まれたら初期化
+document.addEventListener('DOMContentLoaded', initApp);

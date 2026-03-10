@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <!-- メタ情報 -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="シンプルで使いやすいTodo管理アプリ。カレンダー表示・通知機能・PWA対応。">
+  <meta name="theme-color" content="#6c5ce7">
+  
+  <title>Todo管理アプリ</title>
+  
+  <!-- PWAマニフェスト -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- スタイルシート -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-page="index">
+
+  <!-- ========== ヘッダー ========== -->
+  <header class="app-header">
+    <h1>📋 Todo管理</h1>
+    <nav class="nav-links">
+      <a href="index.html" class="active" id="nav-index">一覧</a>
+      <a href="calendar.html" id="nav-calendar">カレンダー</a>
+    </nav>
+  </header>
+
+  <!-- ========== メインコンテンツ ========== -->
+  <main class="main-container">
+
+    <!-- 今日のTodoセクション -->
+    <section class="section">
+      <h2 class="section-title"><span class="icon">🌅</span> 今日のTodo</h2>
+      <div id="today-todos" class="todo-list">
+        <!-- JSで描画 -->
+      </div>
+    </section>
+
+    <!-- フィルタータブ -->
+    <section class="section">
+      <h2 class="section-title"><span class="icon">📋</span> Todo一覧</h2>
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="all">すべて</button>
+        <button class="filter-tab" data-filter="active">未完了</button>
+        <button class="filter-tab" data-filter="completed">完了</button>
+        <button class="filter-tab" data-filter="today">今日</button>
+        <button class="filter-tab" data-filter="overdue">期限切れ</button>
+      </div>
+      <div id="todo-list" class="todo-list">
+        <!-- JSで描画 -->
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== FAB（追加ボタン） ========== -->
+  <button class="fab" onclick="openAddModal()" id="fab-add" aria-label="新しいTodoを追加">＋</button>
+
+  <!-- ========== Todo追加モーダル ========== -->
+  <div class="modal-overlay" id="add-modal" onclick="if(event.target===this)closeModal('add-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>📝 新しいTodo</h2>
+        <button class="modal-close" onclick="closeModal('add-modal')" aria-label="閉じる">×</button>
+      </div>
+      <form id="add-form">
+        <!-- タイトル（必須） -->
+        <div class="form-group">
+          <label for="add-title">タイトル *</label>
+          <input type="text" id="add-title" placeholder="タスクを入力..." required>
+        </div>
+        <!-- メモ（任意） -->
+        <div class="form-group">
+          <label for="add-memo">メモ</label>
+          <textarea id="add-memo" placeholder="詳細メモ..."></textarea>
+        </div>
+        <!-- 期限日 -->
+        <div class="form-group">
+          <label for="add-dueDate">期限</label>
+          <input type="date" id="add-dueDate">
+        </div>
+        <!-- 通知時間 -->
+        <div class="form-group">
+          <label for="add-notifyTime">通知時間</label>
+          <input type="datetime-local" id="add-notifyTime">
+        </div>
+        <!-- 優先度 -->
+        <div class="form-group">
+          <label for="add-priority">優先度</label>
+          <select id="add-priority">
+            <option value="低">低</option>
+            <option value="中" selected>中</option>
+            <option value="高">高</option>
+          </select>
+        </div>
+        <!-- 保存ボタン -->
+        <button type="submit" class="btn btn-primary">保存</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========== Todo詳細モーダル ========== -->
+  <div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeModal('detail-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>📄 Todo詳細</h2>
+        <button class="modal-close" onclick="closeModal('detail-modal')" aria-label="閉じる">×</button>
+      </div>
+      <div id="detail-content">
+        <!-- JSで描画 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Todo編集モーダル ========== -->
+  <div class="modal-overlay" id="edit-modal" onclick="if(event.target===this)closeModal('edit-modal')">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>✏️ Todoを編集</h2>
+        <button class="modal-close" onclick="closeModal('edit-modal')" aria-label="閉じる">×</button>
+      </div>
+      <form id="edit-form">
+        <!-- タイトル（必須） -->
+        <div class="form-group">
+          <label for="edit-title">タイトル *</label>
+          <input type="text" id="edit-title" placeholder="タスクを入力..." required>
+        </div>
+        <!-- メモ（任意） -->
+        <div class="form-group">
+          <label for="edit-memo">メモ</label>
+          <textarea id="edit-memo" placeholder="詳細メモ..."></textarea>
+        </div>
+        <!-- 期限日 -->
+        <div class="form-group">
+          <label for="edit-dueDate">期限</label>
+          <input type="date" id="edit-dueDate">
+        </div>
+        <!-- 通知時間 -->
+        <div class="form-group">
+          <label for="edit-notifyTime">通知時間</label>
+          <input type="datetime-local" id="edit-notifyTime">
+        </div>
+        <!-- 優先度 -->
+        <div class="form-group">
+          <label for="edit-priority">優先度</label>
+          <select id="edit-priority">
+            <option value="低">低</option>
+            <option value="中">中</option>
+            <option value="高">高</option>
+          </select>
+        </div>
+        <!-- 更新ボタン -->
+        <button type="submit" class="btn btn-primary">更新</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- スクリプト -->
+  <script src="script.js"></script>
+</body>
+</html>
