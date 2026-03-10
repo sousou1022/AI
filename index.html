@@ -36,6 +36,18 @@
   <!-- ========== メインコンテンツ ========== -->
   <main class="main-container">
 
+    <!-- プッシュ通知設定セクション -->
+    <section class="section push-section">
+      <div class="push-control">
+        <span id="push-status" class="push-status inactive">❌ プッシュ通知: OFF</span>
+        <div class="push-buttons">
+          <button id="push-enable-btn" class="btn btn-push" onclick="subscribePush()">🔔 通知を有効にする</button>
+          <button id="push-disable-btn" class="btn btn-push-off" onclick="unsubscribePush()" style="display:none">🔕 通知を無効にする</button>
+          <button id="push-test-btn" class="btn btn-push-test" onclick="sendTestNotification()" style="display:none">📲 テスト通知</button>
+        </div>
+      </div>
+    </section>
+
     <!-- 今日のTodoセクション -->
     <section class="section">
       <h2 class="section-title"><span class="icon">🌅</span> 今日のTodo</h2>

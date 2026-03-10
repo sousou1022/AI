@@ -701,6 +701,87 @@ body {
   color: #fff;
 }
 
+/* ---------- プッシュ通知コントロール ---------- */
+.push-section {
+  margin-bottom: 20px;
+}
+
+.push-control {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.push-status {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.push-status.active {
+  color: #2ed573;
+}
+
+.push-status.inactive {
+  color: var(--text-muted);
+}
+
+.push-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-push,
+.btn-push-off,
+.btn-push-test {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-push {
+  background: var(--accent-gradient);
+  color: #fff;
+}
+
+.btn-push:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn-push-off {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.btn-push-off:hover {
+  background: rgba(255, 71, 87, 0.15);
+  color: var(--overdue);
+}
+
+.btn-push-test {
+  background: rgba(46, 213, 115, 0.12);
+  color: #2ed573;
+}
+
+.btn-push-test:hover {
+  background: rgba(46, 213, 115, 0.25);
+}
+
 /* ---------- アニメーション ---------- */
 @keyframes fadeIn {
   from {

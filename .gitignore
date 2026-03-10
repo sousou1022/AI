@@ -1,0 +1,8 @@
+# 環境変数（VAPID鍵が含まれるため）
+.env
+
+# Node.js依存パッケージ
+node_modules/
+
+# サーバーデータ
+data/

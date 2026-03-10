@@ -1,0 +1,17 @@
+{
+  "name": "todo-push-server",
+  "version": "1.0.0",
+  "description": "Todo管理アプリ - プッシュ通知サーバー",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "generate-vapid": "node -e \"const wp=require('web-push');const k=wp.generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+k.publicKey);console.log('VAPID_PRIVATE_KEY='+k.privateKey)\""
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "web-push": "latest"
+  }
+}

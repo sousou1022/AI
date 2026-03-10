@@ -8,6 +8,9 @@ const STORAGE_KEY = 'todo-app-data';          // localStorageのキー
 const NOTIFIED_KEY = 'todo-app-notified';     // 通知済みIDのキー
 const CHECK_INTERVAL = 60000;                  // 通知チェック間隔（1分）
 
+// サーバーURL（同一オリジンの場合は空文字）
+const SERVER_URL = '';
+
 // ---------- 状態管理 ----------
 let todos = [];           // Todoリスト
 let editingId = null;     // 現在編集中のTodo ID
@@ -37,9 +40,26 @@ function loadTodos() {
 function saveTodos() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+    // サーバーにもTodoデータを同期
+    syncTodosToServer();
   } catch (e) {
     console.error('データの保存に失敗:', e);
   }
+}
+
+/**
+ * Todoデータをサーバーに同期する
+ * サーバーが通知スケジュールに使用するため
+ */
+function syncTodosToServer() {
+  fetch(`${SERVER_URL}/api/save-todos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ todos })
+  }).catch(err => {
+    // サーバーが起動していない場合は無視（オフライン対応）
+    console.warn('サーバー同期に失敗（オフラインの可能性）:', err.message);
+  });
 }
 
 /**
@@ -770,8 +790,11 @@ function showDayDetail(dateStr) {
 }
 
 // ==========================================================
-// Service Worker登録
+// Service Worker登録 & プッシュ通知
 // ==========================================================
+
+// プッシュ通知のサブスクリプションを保持
+let pushSubscription = null;
 
 /**
  * Service Workerを登録する
@@ -786,6 +809,183 @@ function registerServiceWorker() {
         console.error('[App] Service Worker登録失敗:', error);
       });
   }
+}
+
+/**
+ * プッシュ通知を購読（登録）する
+ * サーバーからVAPID公開鍵を取得し、ブラウザのPush APIで購読を作成し、
+ * サーバーにサブスクリプションを送信する
+ */
+async function subscribePush() {
+  try {
+    // 通知許可を確認
+    if (!('Notification' in window)) {
+      console.warn('[Push] このブラウザは通知に対応していません');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.warn('[Push] 通知が許可されませんでした');
+      updatePushUI(false);
+      return;
+    }
+
+    // Service Workerの準備を待つ
+    const registration = await navigator.serviceWorker.ready;
+
+    // 既存のサブスクリプションを確認
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      // サーバーからVAPID公開鍵を取得
+      const response = await fetch(`${SERVER_URL}/api/vapid-public-key`);
+      const { publicKey } = await response.json();
+
+      // Base64をUint8Arrayに変換
+      const applicationServerKey = urlBase64ToUint8Array(publicKey);
+
+      // プッシュ通知を購読
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey
+      });
+
+      console.log('[Push] 新しいサブスクリプションを作成');
+    } else {
+      console.log('[Push] 既存のサブスクリプションを使用');
+    }
+
+    // サーバーにサブスクリプションを登録
+    await fetch(`${SERVER_URL}/api/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription)
+    });
+
+    pushSubscription = subscription;
+    console.log('[Push] プッシュ通知の登録が完了しました');
+    updatePushUI(true);
+
+    // Todoデータもサーバーに同期
+    syncTodosToServer();
+
+  } catch (error) {
+    console.error('[Push] プッシュ通知の登録に失敗:', error);
+    updatePushUI(false);
+  }
+}
+
+/**
+ * プッシュ通知の購読を解除する
+ */
+async function unsubscribePush() {
+  try {
+    if (pushSubscription) {
+      // サーバーから削除
+      await fetch(`${SERVER_URL}/api/unsubscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: pushSubscription.endpoint })
+      });
+
+      // ブラウザの購読を解除
+      await pushSubscription.unsubscribe();
+      pushSubscription = null;
+
+      console.log('[Push] プッシュ通知を解除しました');
+      updatePushUI(false);
+    }
+  } catch (error) {
+    console.error('[Push] 購読解除に失敗:', error);
+  }
+}
+
+/**
+ * テスト通知を送信する
+ */
+async function sendTestNotification() {
+  try {
+    const res = await fetch(`${SERVER_URL}/api/test-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (data.success) {
+      console.log('[Push] テスト通知を送信しました');
+    } else {
+      console.warn('[Push] テスト通知の送信に失敗:', data.error);
+      alert('テスト通知の送信に失敗しました: ' + (data.error || '不明なエラー'));
+    }
+  } catch (error) {
+    console.error('[Push] テスト通知エラー:', error);
+    alert('サーバーに接続できません。サーバーが起動しているか確認してください。');
+  }
+}
+
+/**
+ * プッシュ通知UIの状態を更新する
+ * @param {boolean} isSubscribed - 購読中かどうか
+ */
+function updatePushUI(isSubscribed) {
+  const enableBtn = document.getElementById('push-enable-btn');
+  const disableBtn = document.getElementById('push-disable-btn');
+  const testBtn = document.getElementById('push-test-btn');
+  const status = document.getElementById('push-status');
+
+  if (enableBtn) enableBtn.style.display = isSubscribed ? 'none' : 'inline-flex';
+  if (disableBtn) disableBtn.style.display = isSubscribed ? 'inline-flex' : 'none';
+  if (testBtn) testBtn.style.display = isSubscribed ? 'inline-flex' : 'none';
+  if (status) {
+    status.textContent = isSubscribed ? '✅ プッシュ通知: ON' : '❌ プッシュ通知: OFF';
+    status.className = `push-status ${isSubscribed ? 'active' : 'inactive'}`;
+  }
+}
+
+/**
+ * プッシュ通知の現在の状態を確認
+ */
+async function checkPushSubscription() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      console.warn('[Push] このブラウザはプッシュ通知に対応していません');
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+
+    if (subscription) {
+      pushSubscription = subscription;
+      updatePushUI(true);
+    } else {
+      updatePushUI(false);
+    }
+  } catch (error) {
+    console.error('[Push] 状態確認エラー:', error);
+    updatePushUI(false);
+  }
+}
+
+/**
+ * Base64 URL文字列をUint8Arrayに変換する
+ * Web Push APIのapplicationServerKeyに必要
+ * @param {string} base64String - Base64 URL形式の文字列
+ * @returns {Uint8Array}
+ */
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
 }
 
 // ==========================================================
@@ -804,6 +1004,11 @@ function initApp() {
 
   // Service Worker登録
   registerServiceWorker();
+
+  // プッシュ通知の状態確認（少し遅延させてSW登録を待つ）
+  setTimeout(() => {
+    checkPushSubscription();
+  }, 1000);
 
   // ページ固有の初期化
   const page = document.body.dataset.page;
