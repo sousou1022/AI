@@ -116,6 +116,57 @@ function toggleComplete(id) {
   }
 }
 
+/**
+ * 期限切れのTodoを自動削除する（昨日以前）
+ */
+function cleanupOverdueTodos() {
+  const todayStr = getTodayString();
+  const initialCount = todos.length;
+  
+  // 今日より前の日付（期限切れ）をフィルタリングして削除
+  todos = todos.filter(todo => {
+    if (!todo.dueDate) return true; // 期限なしは残す
+    return todo.dueDate >= todayStr;
+  });
+
+  if (todos.length !== initialCount) {
+    console.log(`[Cleanup] ${initialCount - todos.length}件の期限切れTodoを自動削除しました`);
+    saveTodos();
+  }
+}
+
+/**
+ * 終わった予定（完了済み、または期限切れ）を自動的に削除する
+ */
+function autoCleanupTasks() {
+  const now = new Date();
+  const todayStr = getTodayString();
+  
+  // 現在時刻（分単位）: YYYY-MM-DDTHH:mm
+  const currentMinute = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}T${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const originalCount = todos.length;
+
+  todos = todos.filter(todo => {
+    // 1. 完了済みは削除
+    if (todo.completed) return false;
+
+    // 2. 期限日が過ぎているものは削除（今日より前）
+    if (todo.dueDate && todo.dueDate < todayStr) return false;
+
+    // 3. 通知時間が過ぎているものは削除
+    if (todo.notifyTime && todo.notifyTime < currentMinute) return false;
+
+    return true;
+  });
+
+  if (todos.length !== originalCount) {
+    console.log(`[Cleanup] ${originalCount - todos.length}件の終了したタスクを自動削除しました`);
+    saveTodos();
+    renderAll();
+  }
+}
+
 // ==========================================================
 // 日付ユーティリティ
 // ==========================================================
@@ -1004,6 +1055,9 @@ function initApp() {
   // localStorageからTodoを読み込み
   todos = loadTodos();
 
+  // 期限切れTodoの自動削除
+  cleanupOverdueTodos();
+
   // 通知許可のリクエスト
   requestNotificationPermission();
 
@@ -1041,6 +1095,12 @@ function initApp() {
 
   // 通知チェック開始
   startNotificationCheck();
+
+  // 自動クリーンアップ（初回実行）
+  autoCleanupTasks();
+
+  // 定期的（15分ごと）にクリーンアップを実行
+  setInterval(autoCleanupTasks, 15 * 60 * 1000);
 }
 
 // DOMが読み込まれたら初期化

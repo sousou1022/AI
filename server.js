@@ -134,6 +134,29 @@ function saveTodos(todos) {
   fs.writeFileSync(TODOS_FILE, JSON.stringify(todos, null, 2), 'utf-8');
 }
 
+/**
+ * 期限切れTodoをサーバーから自動削除
+ */
+function cleanupOverdueTodosFromServer() {
+  const todos = loadTodos();
+  if (todos.length === 0) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  const initialCount = todos.length;
+  const activeTodos = todos.filter(todo => {
+    if (!todo.dueDate) return true; // 期限なしは残す
+    return todo.dueDate >= todayStr;
+  });
+
+  if (activeTodos.length !== initialCount) {
+    saveTodos(activeTodos);
+    console.log(`[Server Cleanup] ${initialCount - activeTodos.length}件の期限切れTodoを削除しました`);
+  }
+}
+
 // ==========================================================
 // 通知済み管理
 // ==========================================================
@@ -331,6 +354,9 @@ function sendPushToAll(title, body) {
  * 毎分実行される
  */
 function checkAndSendNotifications() {
+  // 期限切れTodoの自動クリーンアップ
+  cleanupOverdueTodosFromServer();
+
   const todos = loadTodos();
   if (todos.length === 0) return;
 
