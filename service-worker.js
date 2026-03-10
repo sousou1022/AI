@@ -3,7 +3,7 @@
 // ==========================================================
 
 // キャッシュ名（バージョン管理用）
-const CACHE_NAME = 'todo-app-v2';
+const CACHE_NAME = 'todo-app-v3';
 
 // キャッシュ対象の静的ファイル一覧
 const STATIC_ASSETS = [

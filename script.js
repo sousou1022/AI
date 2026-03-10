@@ -720,71 +720,55 @@ function formatDateStr(year, month, day) {
  * @param {number} day - 日
  * @param {string} dateStr - 日付文字列
  * @param {boolean} isOtherMonth - 他の月かどうか
- * @param {boasync function subscribePush() {
-  try {
-    // 診断用
-    console.log('[Push] 登録処理を開始...');
+ * @param {boolean} isToday - 今日かどうか
+ * @returns {string}
+ */
+function createCalendarDayHTML(day, dateStr, isOtherMonth, isToday = false) {
+  const dayTodos = todos.filter(t => t.dueDate === dateStr);
+  const todayClass = isToday ? 'today' : '';
+  const otherClass = isOtherMonth ? 'other-month' : '';
 
-    // 通知許可を確認
-    if (!('Notification' in window)) {
-      alert('❌ このブラウザは通知に対応していないか、PWAとしてインストールされていません。\n\niPhoneの場合は「ホーム画面に追加」してから起動してください。');
-      return;
-    }
+  const todosHTML = dayTodos.slice(0, 3).map(t => {
+    const pClass = t.priority === '高' ? 'high' : t.priority === '中' ? 'medium' : 'low';
+    return `<div class="day-todo-item ${pClass}">${escapeHTML(t.title)}</div>`;
+  }).join('');
 
-    const permission = await Notification.requestPermission();
-    console.log('[Push] 通知許可ステータス:', permission);
+  // 3件以上ある場合は「+N件」と表示
+  const moreHTML = dayTodos.length > 3 
+    ? `<div class="day-todo-item" style="background:rgba(255,255,255,0.1)">+${dayTodos.length - 3}件</div>` 
+    : '';
 
-    if (permission !== 'granted') {
-      alert('⚠️ 通知が許可されませんでした。ブラウザの設定から通知を許可してください。');
-      updatePushUI(false);
-      return;
-    }
+  return `
+    <div class="calendar-day ${todayClass} ${otherClass}" onclick="showDayDetail('${dateStr}')">
+      <div class="day-number">${day}</div>
+      <div class="day-todos">${todosHTML}${moreHTML}</div>
+    </div>
+  `;
+}
 
-    // Service Workerの準備を待つ
-    console.log('[Push] Service Workerの準備を待機中...');
-    const registration = await navigator.serviceWorker.ready;
-
-    // 既存のサブスクリプションを確認
-    let subscription = await registration.pushManager.getSubscription();
-
-    if (!subscription) {
-      console.log('[Push] 新しいサブスクリプションを作成します...');
-      // サーバーからVAPID公開鍵を取得
-      const response = await fetch(`${SERVER_URL}/api/vapid-public-key`);
-      if (!response.ok) throw new Error('サーバーから鍵を取得できませんでした');
-      
-      const { publicKey } = await response.json();
-      const applicationServerKey = urlBase64ToUint8Array(publicKey);
-
-      // プッシュ通知を購読
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: applicationServerKey
-      });
-    }
-
-    // サーバーにサブスクリプションを登録
-    const subRes = await fetch(`${SERVER_URL}/api/subscribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subscription)
-    });
-
-    if (!subRes.ok) throw new Error('サーバーへの登録に失敗しました');
-
-    pushSubscription = subscription;
-    alert('✅ プッシュ通知が有効になりました！');
-    updatePushUI(true);
-
-    // Todoデータもサーバーに同期
-    syncTodosToServer();
-
-  } catch (error) {
-    console.error('[Push] 登録失敗:', error);
-    alert(`❌ エラーが発生しました:\n${error.message}\n\nサーバー設定や接続環境を確認してください。`);
-    updatePushUI(false);
+/**
+ * カレンダーの月を変更する
+ * @param {number} delta - +1 で次月、-1 で前月
+ */
+function changeMonth(delta) {
+  calendarMonth += delta;
+  if (calendarMonth > 11) {
+    calendarMonth = 0;
+    calendarYear++;
+  } else if (calendarMonth < 0) {
+    calendarMonth = 11;
+    calendarYear--;
   }
-}day-detail-content');
+  renderCalendar();
+}
+
+/**
+ * 特定の日付のTodo一覧を表示する
+ * @param {string} dateStr - YYYY-MM-DD形式の日付
+ */
+function showDayDetail(dateStr) {
+  const dayTodos = todos.filter(t => t.dueDate === dateStr);
+  const panel = document.getElementById('day-detail-content');
   const title = document.getElementById('day-detail-title');
   
   if (!panel || !title) return;
@@ -834,31 +818,37 @@ function registerServiceWorker() {
  */
 async function subscribePush() {
   try {
+    console.log('[Push] 登録処理を開始...');
+
     // 通知許可を確認
     if (!('Notification' in window)) {
-      console.warn('[Push] このブラウザは通知に対応していません');
+      alert('❌ このブラウザは通知に対応していないか、PWAとしてインストールされていません。\n\niPhoneの場合は「ホーム画面に追加」してから起動してください。');
       return;
     }
 
     const permission = await Notification.requestPermission();
+    console.log('[Push] 通知許可ステータス:', permission);
+
     if (permission !== 'granted') {
-      console.warn('[Push] 通知が許可されませんでした');
+      alert('⚠️ 通知が許可されませんでした。ブラウザの設定から通知を許可してください。');
       updatePushUI(false);
       return;
     }
 
     // Service Workerの準備を待つ
+    console.log('[Push] Service Workerの準備を待機中...');
     const registration = await navigator.serviceWorker.ready;
 
     // 既存のサブスクリプションを確認
     let subscription = await registration.pushManager.getSubscription();
 
     if (!subscription) {
+      console.log('[Push] 新しいサブスクリプションを作成します...');
       // サーバーからVAPID公開鍵を取得
       const response = await fetch(`${SERVER_URL}/api/vapid-public-key`);
+      if (!response.ok) throw new Error('サーバーから公開鍵を取得できませんでした');
+      
       const { publicKey } = await response.json();
-
-      // Base64をUint8Arrayに変換
       const applicationServerKey = urlBase64ToUint8Array(publicKey);
 
       // プッシュ通知を購読
@@ -866,28 +856,27 @@ async function subscribePush() {
         userVisibleOnly: true,
         applicationServerKey: applicationServerKey
       });
-
-      console.log('[Push] 新しいサブスクリプションを作成');
-    } else {
-      console.log('[Push] 既存のサブスクリプションを使用');
     }
 
     // サーバーにサブスクリプションを登録
-    await fetch(`${SERVER_URL}/api/subscribe`, {
+    const subRes = await fetch(`${SERVER_URL}/api/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subscription)
     });
 
+    if (!subRes.ok) throw new Error('サーバーへの登録に失敗しました');
+
     pushSubscription = subscription;
-    console.log('[Push] プッシュ通知の登録が完了しました');
+    alert('✅ プッシュ通知が有効になりました！');
     updatePushUI(true);
 
     // Todoデータもサーバーに同期
     syncTodosToServer();
 
   } catch (error) {
-    console.error('[Push] プッシュ通知の登録に失敗:', error);
+    console.error('[Push] 登録失敗:', error);
+    alert(`❌ エラーが発生しました:\n${error.message}\n\nサーバー設定や接続環境を確認してください。`);
     updatePushUI(false);
   }
 }
